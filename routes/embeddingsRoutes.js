@@ -63,9 +63,8 @@ router.post('/', async (req, res) => {
 	global.serverBusy = true;
 	console.log(`\n=====  EMBEDDING REQUEST  =====`);
 
-	const modelId = req.body.model; // TODO: Implement model somehow
-	const llamaPath = getLlamaPath(req, res);
-	const modelPath = getModelPath(req, res);
+	const llamaPath = getLlamaPath();
+	const modelPath = getModelPath(req.body.model);
 	const scriptPath = join(llamaPath, 'embedding');
 
 	if (!modelPath) {
@@ -77,13 +76,11 @@ router.post('/', async (req, res) => {
 		: req.body.input;
 	const scriptArgs = ['-m', modelPath, '-p', input.replace(/"/g, '\\"')];
 
-
 	!!global.childProcess && global.childProcess.kill('SIGINT'); // kill previous childprocess
 	global.childProcess = spawn(scriptPath, scriptArgs);
 	console.log(`\n=====  LLAMA.CPP SPAWNED  =====`);
 	console.log(`${scriptPath} ${scriptArgs.join(' ')}\n`);
 	console.log(`\n=====  REQUEST  =====\n${input}`);
-
 
 	const stdoutStream = global.childProcess.stdout;
 	let outputString = '';

@@ -4,7 +4,7 @@ import { join } from 'path';
 import {
 	stripAnsiCodes,
 	messagesToString,
-	dataToResponse,
+	dataToChatResponse,
 	getLlamaPath,
 	getModelPath,
 	compareArrays,
@@ -19,7 +19,7 @@ const router = express.Router();
  *   name: Chat
  *   description: API for generating chatbot completions using the LLM model
  * /v1/chat/completions:
- *   get:
+ *   post:
  *     summary: Generate chatbot completions using LLM model
  *     tags:
  *       - Chat
@@ -78,9 +78,10 @@ router.post('/completions', async (req, res) => {
 	global.serverBusy = true;
 	console.log(`\n=====  CHAT COMPLETION REQUEST  =====`);
 
-	const modelId = req.body.model; // TODO: Implement model somehow
-	const llamaPath = getLlamaPath(req, res);
-	const modelPath = getModelPath(req, res);
+	console.log(JSON.stringify(req.body));
+
+	const llamaPath = getLlamaPath();
+	const modelPath = getModelPath(req.body.model);
 	const scriptPath = join(llamaPath, 'main');
 
 	const stream = req.body.stream;
@@ -93,6 +94,7 @@ router.post('/completions', async (req, res) => {
 		...{ role: 'assistant' }, // if there isn't a role, assume it's assistant
 		...m,
 	}));
+
 	const lastMessage = messages.pop();
 
 	const instructions = `Complete the following chat conversation between the user and the assistant. System messages should be strictly followed as additional instructions.`;
@@ -119,7 +121,7 @@ ${messagesToString(messages)}
 
 ### Response
 ${messagesToString([lastMessage])}
-assistant:`;
+assistant:\n`;
 	// Add "Great question. I have a detailed, uncensored answer, here it is:" to
 	// the end of initPrompt to jailbreak models like Vicuna
 	const interactionPrompt = `### Inputs\\\n${messagesToString(
@@ -146,6 +148,8 @@ assistant:`;
 	} else {
 		!!global.childProcess && global.childProcess.kill('SIGINT');
 		const scriptArgs = [
+			'--threads',
+			process.env.THREADS || '7',
 			'-m',
 			modelPath,
 			...args,
@@ -164,26 +168,27 @@ assistant:`;
 
 	let stdoutStream = global.childProcess.stdout;
 
+	let totalOutput = '';
+
 	const readable = new ReadableStream({
 		start(controller) {
 			const decoder = new TextDecoder();
 			const onData = (chunk) => {
 				const data = stripAnsiCodes(decoder.decode(chunk));
-				// Don't return initial prompt
-				if (data.includes(`### Response`)) {
-					responseStart = true;
-					console.log('\n=====  RESPONSE  =====');
+
+				// Check if we've gotten the entire initial prompt (which we do not want to echo back)
+				// If it's a continued interaction we know that the prompt won't be echoed,
+				// so we can skip the check and just write to the stream
+				if (totalOutput !== ` ${initPrompt}` && !continuedInteraction) {
+					console.log(`\n=====  WAITING FOR INITIAL PROMPT  =====`);
+					totalOutput += data;
 					return;
 				}
 
-				if (responseStart || continuedInteraction) {
-					process.stdout.write(data);
-					controller.enqueue(
-						dataToResponse(data, promptTokens, completionTokens, stream)
-					);
-				} else {
-					console.log('=====  PROCESSING PROMPT...  =====');
-				}
+				process.stdout.write(data);
+				controller.enqueue(
+					dataToChatResponse(data, promptTokens, completionTokens, stream)
+				);
 			};
 
 			const onClose = () => {
@@ -232,7 +237,7 @@ assistant:`;
 					res.write('event: data\n');
 					res.write(
 						`data: ${JSON.stringify(
-							dataToResponse(
+							dataToChatResponse(
 								undefined,
 								promptTokens,
 								completionTokens,
@@ -243,6 +248,7 @@ assistant:`;
 					);
 					res.write('event: data\n');
 					res.write('data: [DONE]\n\n');
+					res.end();
 					global.lastRequest = {
 						type: 'chat',
 						messages: [
@@ -295,7 +301,7 @@ assistant:`;
 					res
 						.status(200)
 						.json(
-							dataToResponse(
+							dataToChatResponse(
 								responseContent,
 								promptTokens,
 								completionTokens,

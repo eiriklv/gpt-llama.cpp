@@ -1,3 +1,6 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express from 'express';
 import cors from 'cors';
 import IP from 'ip';
@@ -6,6 +9,7 @@ import swaggerUi from 'swagger-ui-express';
 
 import modelsRoutes from './routes/modelsRoutes.js';
 import chatRoutes from './routes/chatRoutes.js';
+import textRoutes from './routes/textRoutes.js';
 import embeddingsRoutes from './routes/embeddingsRoutes.js';
 
 const PORT = process.env.PORT || 443;
@@ -139,6 +143,7 @@ app.use(
 app.use('/v1/models', modelsRoutes);
 app.use('/v1/chat', chatRoutes);
 app.use('/v1/embeddings', embeddingsRoutes);
+app.use('/v1', textRoutes);
 app.get('/', (req, res) =>
 	res.type('text/plain').send(`
 ################################################################################

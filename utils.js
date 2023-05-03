@@ -2,6 +2,12 @@ import { sep, join, resolve } from 'path';
 import { nanoid } from 'nanoid';
 import { readdir } from 'fs/promises';
 
+export const getGptModels = () => [
+	{ id: 'gpt-3.5-turbo', model: process.env.DEFAULT_MODEL },
+	{ id: 'gpt-4', model: process.env.DEFAULT_MODEL },
+	{ id: 'text-davinci-003', model: process.env.DEFAULT_MODEL },
+]
+
 export async function* getFiles(dir) {
 	const dirents = await readdir(dir, { withFileTypes: true });
 	for (const dirent of dirents) {
@@ -30,7 +36,7 @@ export const messagesToString = (messages, newLine = false) => {
 		.join('\n');
 };
 
-export const dataToResponse = (
+export const dataToChatResponse = (
 	data,
 	promptTokens,
 	completionTokens,
@@ -60,6 +66,44 @@ export const dataToResponse = (
 	};
 };
 
+export const dataToCompletionResponse = (
+	data,
+	promptTokens,
+	completionTokens,
+	stream = false,
+	reason = null
+) => {
+	const currDate = new Date();
+
+	return {
+		choices: [
+			{
+				text: data,
+				finish_reason: reason,
+				index: 0,
+				logprobs: {
+					text_offset: [0],
+					token_logprobs: [0],
+					tokens: [''],
+					top_logprobs: [
+						{
+							' example': 0,
+						},
+					],
+				},
+			},
+		],
+		created: currDate.getTime(),
+		id: nanoid(),
+		object: 'text_completion',
+		usage: {
+			prompt_tokens: promptTokens,
+			completion_tokens: completionTokens,
+			total_tokens: promptTokens + completionTokens,
+		},
+	};
+};
+
 export const dataToEmbeddingResponse = (output) => {
 	return {
 		object: 'list',
@@ -74,14 +118,10 @@ export const dataToEmbeddingResponse = (output) => {
 	};
 };
 
-export const getModelPath = (req, res) => {
-	const API_KEY = req.headers.authorization;
-	if (!API_KEY) {
-		return;
-	}
-	// We're using API_KEY as a slot to provide the "llama.cpp" model path
-	const modelPath = API_KEY.split(' ')[1];
-	return normalizePath(modelPath);
+export const getModelPath = (modelId) => {
+	let gptModelMatch = getGptModels().find(gptModel => modelId === gptModel.id);
+	console.log({ gptModelMatch, gptModels: getGptModels(), modelId })
+	return gptModelMatch ? gptModelMatch.model : modelId;
 };
 
 // Normalizes and fixes all the slahses for Win/Mac
@@ -97,9 +137,10 @@ export const getModelName = (path) => {
 };
 
 export const getLlamaPath = (req, res) => {
-	const modelPath = getModelPath(req, res);
-	const path = modelPath.split('llama.cpp')[0]; // only
-	return join(path, 'llama.cpp');
+	// const modelPath = getModelPath(req, res);
+	// const path = modelPath.split('llama.cpp')[0]; // only
+	// return join(path, 'llama.cpp');
+	return process.env.LLAMA_PATH;
 };
 
 export const compareArrays = (arr1, arr2) => {
