@@ -3,10 +3,44 @@ import { nanoid } from 'nanoid';
 import { readdir } from 'fs/promises';
 
 export const getGptModels = () => [
+	{
+		id: 'text-embedding-ada-002',
+		model:
+			'/Users/eirikprivat/Development/ai/llama.cpp/models/vicuna/ggml-vic7b-q5_1.bin',
+	},
 	{ id: 'gpt-3.5-turbo', model: process.env.DEFAULT_MODEL },
-	{ id: 'gpt-4', model: process.env.DEFAULT_MODEL },
 	{ id: 'text-davinci-003', model: process.env.DEFAULT_MODEL },
-]
+	{
+		id: 'vicuna-13b',
+		model:
+			'/Users/eirikprivat/Development/ai/llama.cpp/models/vicuna/ggml-vic13b-q5_1.bin',
+	},
+	{
+		id: 'vicuna-13b-uncensored',
+		model:
+			'/Users/eirikprivat/Development/ai/llama.cpp/models/vicuna/ggml-vic13b-uncensored-q5_1.bin',
+	},
+	{
+		id: 'vicuna-7b',
+		model:
+			'/Users/eirikprivat/Development/ai/llama.cpp/models/vicuna/ggml-vic7b-q5_1.bin',
+	},
+	{
+		id: 'gpt4-x-vicuna-13b',
+		model:
+			'/Users/eirikprivat/Development/ai/llama.cpp/models/vicuna/gpt4-x-vicuna-13B.ggml.q5_1.bin',
+	},
+	{
+		id: 'gpt4all-j-v1.3-groovy',
+		model:
+			'/Users/eirikprivat/Development/ai/llama.cpp/models/gpt4all/ggml-gpt4all-j-v1.3-groovy.bin',
+	},
+	{
+		id: 'gpt4all-l13b-snoozy',
+		model:
+			'/Users/eirikprivat/Development/ai/llama.cpp/models/gpt4all/ggml-gpt4all-l13b-snoozy.bin',
+	},
+];
 
 export async function* getFiles(dir) {
 	const dirents = await readdir(dir, { withFileTypes: true });
@@ -21,6 +55,23 @@ export async function* getFiles(dir) {
 			}
 		}
 	}
+}
+
+export function normalizeVector(vector) {
+	// Calculate the magnitude (length) of the vector
+	const magnitude = Math.sqrt(
+		vector.reduce((sum, value) => sum + value * value, 0)
+	);
+
+	// Check if the magnitude is not zero, to avoid division by zero
+	if (magnitude === 0) {
+		throw new Error('Cannot normalize a vector with magnitude 0');
+	}
+
+	// Normalize the vector by dividing each element by the magnitude
+	const normalizedVector = vector.map((value) => value / magnitude);
+
+	return normalizedVector;
 }
 
 export function stripAnsiCodes(str) {
@@ -82,14 +133,10 @@ export const dataToCompletionResponse = (
 				finish_reason: reason,
 				index: 0,
 				logprobs: {
-					text_offset: [0],
-					token_logprobs: [0],
-					tokens: [''],
-					top_logprobs: [
-						{
-							' example': 0,
-						},
-					],
+					text_offset: [],
+					token_logprobs: [],
+					tokens: [],
+					top_logprobs: [],
 				},
 			},
 		],
@@ -104,23 +151,23 @@ export const dataToCompletionResponse = (
 	};
 };
 
-export const dataToEmbeddingResponse = (output) => {
+export const dataToEmbeddingResponse = (embeddings) => {
 	return {
 		object: 'list',
-		data: [
-			{
-				object: 'embedding',
-				embedding: output,
-				index: 0,
-			},
-		],
-		embeddingSize: output.length,
+		data: embeddings.map((embedding, index) => ({
+			object: 'embedding',
+			embedding,
+			index,
+		})),
+		embeddingSize: embeddings[0].length,
 	};
 };
 
 export const getModelPath = (modelId) => {
-	let gptModelMatch = getGptModels().find(gptModel => modelId === gptModel.id);
-	console.log({ gptModelMatch, gptModels: getGptModels(), modelId })
+	let gptModelMatch = getGptModels().find(
+		(gptModel) => modelId === gptModel.id
+	);
+	console.log({ gptModelMatch, gptModels: getGptModels(), modelId });
 	return gptModelMatch ? gptModelMatch.model : modelId;
 };
 

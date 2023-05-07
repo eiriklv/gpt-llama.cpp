@@ -6,7 +6,7 @@ export const defaultMsgs = [
 
 const defaultParams = {
 	'--temp': '0.7',
-	'--n_predict': '512',
+	'--n_predict': '4000',
 	'--top_p': '0.1',
 	'--top_k': '40',
 	'-b': '512',
