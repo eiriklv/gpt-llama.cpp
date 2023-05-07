@@ -52,15 +52,9 @@ const router = express.Router();
  *                   items:
  *                     type: object
  *                     properties:
- *                       message:
- *                         type: object
- *                         properties:
- *                           content:
- *                             type: string
- *                             description: The generated completion text
- *                           metadata:
- *                             type: object
- *                             description: Additional metadata about the completion
+ *                       text:
+ *                         type: string
+ *                         description: Completion text result
  */
 
 router.post('/completions', async (req, res) => {
@@ -82,12 +76,13 @@ router.post('/completions', async (req, res) => {
 	const stopPrompts = req.body.stop || [];
 	const stopArgs = stopPrompts.flatMap((s) => ['--reverse-prompt', s]);
 	const args = getArgs(req.body);
-	const initPrompt = req.body.prompt;
+	const prompt = req.body.prompt;
+	const maxTokens = req.body['max_tokens'];
 
 	// important variables
 	let responseContent = '';
 
-	const promptTokens = Math.ceil(initPrompt.length / 4);
+	const promptTokens = Math.ceil(prompt.length / 4);
 	let completionTokens = 0;
 
 	!!global.childProcess && global.childProcess.kill('SIGINT');
@@ -100,7 +95,7 @@ router.post('/completions', async (req, res) => {
 		...args,
 		...stopArgs,
 		'-p',
-		initPrompt,
+		prompt,
 	];
 
 	global.childProcess = spawn(scriptPath, scriptArgs);
@@ -120,7 +115,7 @@ router.post('/completions', async (req, res) => {
 				const data = stripAnsiCodes(decoder.decode(chunk));
 
 				// Check if we've gotten the entire initial prompt (which we do not want to echo back)
-				if (totalOutput !== ` ${initPrompt}`) {
+				if (totalOutput !== ` ${prompt}`) {
 					totalOutput += data;
 					return;
 				}
@@ -187,26 +182,37 @@ router.post('/completions', async (req, res) => {
 				// Check if any of the stop prompts appeared in
 				// the response and abort if that is the case
 				let stopPromptAppearedInCurrentChunk = stopPrompts
-				.some(stopPrompt => currContent.includes(stopPrompt))
+				.some(stopPrompt => currContent.includes(stopPrompt));
 
 				let stopPromptAppearedInLastChunk = stopPrompts
-				.some(stopPrompt => (previousContent || "").includes(stopPrompt))
+				.some(stopPrompt => (previousContent || "").includes(stopPrompt));
 
 				let stopPromptAppearedInLast2Chunks = stopPrompts
-				.some(stopPrompt => last2Content.includes(stopPrompt))
+				.some(stopPrompt => last2Content.includes(stopPrompt));
 
 				let stopPromptAppeared = stopPromptAppearedInLast2Chunks || stopPromptAppearedInCurrentChunk;
 
-				//console.log({ stopPrompts: stopPrompts.join(' '), stopPromptAppeared, stopPromptAppearedInLast2Chunks, stopPromptAppearedInLastChunk, stopPromptAppearedInCurrentChunk });
+				// Add to total token count before checking if we've reached max tokens
+				completionTokens++;
+				responseContent += currContent;
+				!!debounceTimer && clearTimeout(debounceTimer);
 
-				if (!wasStopped && !stopPromptAppeared && !stopPromptAppearedInLastChunk && !!previousChunk) {
+				let hasReachedMaxLength = completionTokens >= maxTokens;
+
+				if (
+					!hasReachedMaxLength &&
+					!wasStopped &&
+					!stopPromptAppeared &&
+					!stopPromptAppearedInLastChunk &&
+					!!previousChunk
+				) {
 					//console.log('writing previous chunk');
 					res.write('event: data\n');
 					res.write(`data: ${JSON.stringify(previousChunk)}\n\n`);
 				}
 
 				// Set flag to signify that a stop has been encountered (to ensure we don't respond with the stop token)
-				wasStopped = wasStopped || stopPromptAppeared;
+				wasStopped = wasStopped || stopPromptAppeared || hasReachedMaxLength;
 				
 				// Check if we hit the end of the llama.cpp output and end the request
 				if (outputEnded) {
@@ -221,12 +227,8 @@ router.post('/completions', async (req, res) => {
 					res.end();
 					return;
 				}
-				
-				completionTokens++;
-				responseContent += currContent;
-				!!debounceTimer && clearTimeout(debounceTimer);
 
-				if (stopPromptAppeared) {
+				if (stopPromptAppeared || hasReachedMaxLength) {
 					console.log('==== STOP PROMPT APPEARED ====');
 					!!global.childProcess && global.childProcess.kill('SIGINT');
 				} else {
@@ -246,7 +248,6 @@ router.post('/completions', async (req, res) => {
 	}
 	// Return a single json response instead of streaming
 	else {
-		let previousChunk; // in case stop prompts are longer, lets combine the last 2 chunks to check
 		const writable = new WritableStream({
 			write(chunk) {
 				const currContent = chunk.choices[0].text;
@@ -278,10 +279,12 @@ router.post('/completions', async (req, res) => {
 						completionTokens++;
 					}
 
+					const hasReachedMaxLength = completionTokens >= maxTokens;
+
 					!!debounceTimer && clearTimeout(debounceTimer);
 
 					// Detect any of the stop prompts and abort the process
-					if (stopPromptAppeared) {
+					if (stopPromptAppeared || hasReachedMaxLength) {
 						!!global.childProcess && global.childProcess.kill('SIGINT');
 					} else {
 						debounceTimer = setTimeout(() => {
